@@ -54,6 +54,9 @@ async def start_command(message: types.Message, state: FSMContext):
     # Clear any existing state
     await state.clear()
     
+    # Delete webhook to ensure polling works
+    await bot.delete_webhook(drop_pending_updates=True)
+    
     await message.answer(
         "📑 *PDF Merger Bot*\n\n"
         "Merge multiple PDF files into one document.\n\n"
@@ -65,8 +68,7 @@ async def start_command(message: types.Message, state: FSMContext):
         "✨ *Features:*\n"
         "- Merge 2-10 PDF files\n"
         "- Preserves original quality\n"
-        "- Maintains page order\n"
-        "- Fast and private\n\n"
+        "- Maintains page order\n\n"
         "Send me your first PDF to start!",
         parse_mode="Markdown"
     )
@@ -82,10 +84,6 @@ async def help_command(message: types.Message):
         "1. Send PDF files one by one\n"
         "2. Click 'Add another PDF' to continue\n"
         "3. Click 'Merge Now' to combine\n\n"
-        "⚠️ *Limits:*\n"
-        "- Max 10 files per merge\n"
-        "- Max 20MB per file\n"
-        "- Text-based PDFs only\n\n"
         "Send /start to begin!",
         parse_mode="Markdown"
     )
@@ -114,11 +112,11 @@ async def handle_pdf(message: types.Message, state: FSMContext):
         file_bytes = await bot.download_file(file.file_path)
         
         # Verify it's a valid PDF
+        temp_pdf = NamedTemporaryFile(suffix=".pdf", delete=False)
+        temp_pdf.write(file_bytes.getvalue())
+        temp_pdf.close()
+        
         try:
-            temp_pdf = NamedTemporaryFile(suffix=".pdf", delete=False)
-            temp_pdf.write(file_bytes.getvalue())
-            temp_pdf.close()
-            
             # Try to read it
             reader = PdfReader(temp_pdf.name)
             page_count = len(reader.pages)
@@ -134,6 +132,7 @@ async def handle_pdf(message: types.Message, state: FSMContext):
             await state.set_state(MergeStates.collecting_pdfs)
             
             await processing_msg.delete()
+            os.unlink(temp_pdf.name)
             
             await message.answer(
                 f"✅ Added: *{pdf_files[-1]['name']}*\n"
@@ -154,7 +153,7 @@ async def handle_pdf(message: types.Message, state: FSMContext):
         logger.error(f"Error: {e}")
         await message.answer("❌ Failed to process PDF. Please try again.")
 
-@dp.callback_query(MergeStates.collecting_pdfs)
+@dp.callback_query()
 async def handle_merge_actions(callback: types.CallbackQuery, state: FSMContext):
     data = callback.data
     
@@ -250,16 +249,16 @@ async def unknown_message(message: types.Message, state: FSMContext):
 async def main():
     logger.info("=" * 45)
     logger.info("📑 PDF MERGER BOT STARTING")
+    
+    # Delete webhook on startup
+    await bot.delete_webhook(drop_pending_updates=True)
+    
     me = await bot.get_me()
     logger.info(f"🤖 Bot: @{me.username}")
     logger.info(f"🆔 Bot ID: {me.id}")
     logger.info("=" * 45)
-    
-    # Delete any existing webhook
-    await bot.delete_webhook(drop_pending_updates=True)
-    logger.info("✅ Webhook deleted")
-    
     logger.info("✅ Bot is polling for messages...")
+    
     await dp.start_polling(bot)
 
 if __name__ == "__main__":
